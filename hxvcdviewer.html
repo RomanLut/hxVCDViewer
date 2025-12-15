@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>hxVCDViewer v1.0.</title>
+  <title>hxVCDViewer v1.0.0</title>
   <style>
     :root{
       --bg:#0b0f14; --panel:#121926; --panel2:#0f1622; --text:#e6eefc; --muted:#9fb0c8;
@@ -45,7 +45,7 @@
 </head>
 <body>
   <div class="topbar">
-    <div style="font-weight:600;letter-spacing:0.02em;">hxVCDViewer v1.0.</div>
+    <div style="font-weight:600;letter-spacing:0.02em;color:yellow;margin-right:30px">hxVCDViewer v1.0.0</div>
     <div class="pill">
       <label for="zoom">Zoom</label>
       <input id="zoom" type="range" min="1" max="500" step="1" value="1" />
@@ -87,7 +87,7 @@
     <div class="names" id="names">
       <div class="header">Signals</div>
       <div id="sigList"></div>
-      <div class="hint">Mouse wheel: zoom. Drag with left mouse button: pan.</div>
+      <div class="hint">Mouse wheel: zoom horizontally. Ctrl+wheel: zoom vertically. Drag with left mouse button: pan.</div>
     </div>
 
     <div class="wave" id="waveWrap">
@@ -957,7 +957,21 @@ pass VCD contents in ?data= url query parameter
       var rect = els.waveWrap.getBoundingClientRect();
       var mx = e.clientX - rect.left;
       var dir = (dy < 0) ? +1 : -1;
-      applyZoomAt(mx, factor, dir);
+      if (e.ctrlKey) {
+        // Ctrl+wheel: vertical zoom (adjust row height)
+        var oldRowH = view.rowH;
+        var newRowHF = clamp(oldRowH * factor, parseInt(els.rowH.min), parseInt(els.rowH.max));
+        var newRowH = Math.max(parseInt(els.rowH.min), Math.round(newRowHF));
+        if (newRowH !== oldRowH) {
+          view.rowH = newRowH;
+          els.rowH.value = String(newRowH);
+          els.rowHVal.textContent = String(newRowH) + "px";
+          resizeAndRender();
+        }
+      } else {
+        // Normal wheel: horizontal zoom
+        applyZoomAt(mx, factor, dir);
+      }
     }, { passive: false });
 
     var isPanning = false;
@@ -1165,17 +1179,51 @@ pass VCD contents in ?data= url query parameter
       maxChars: 300000
     };
 
+    var recording = false;
+    var vcdBuffer = "";
+
     function setUartInfo(msg){ if (els.uartInfo) els.uartInfo.textContent = msg || ""; }
 
     function termSet(text){ if (els.termOut) els.termOut.textContent = String(text || ""); }
 
     function termAppend(text){
       if (!els.termOut) return;
+
+      var textStr = String(text || "");
+
+      if (!recording) {
+        if (textStr.includes('<<<VCDSTART>>>')) {
+          recording = true;
+          vcdBuffer = "";
+          var startIdx = textStr.indexOf('<<<VCDSTART>>>');
+          if (startIdx >= 0) {
+            vcdBuffer += textStr.substring(startIdx + '<<<VCDSTART>>>'.length);
+          }
+        }
+      } else {
+        var stopIdx = textStr.indexOf('<<<VCDSTOP>>>');
+        if (stopIdx >= 0) {
+          vcdBuffer += textStr.substring(0, stopIdx);
+          recording = false;
+          try {
+            loadFromText(vcdBuffer, 'uart.vcd');
+          } catch (e) {
+            setStatus('Failed to parse VCD from UART.');
+          }
+          uartDisconnect();
+          showUartModal(false);
+          return;
+        } else {
+          vcdBuffer += textStr;
+        }
+      }
+
       var prev = els.termOut.textContent || "";
-      var next = prev + String(text || "");
+      var next = prev + textStr;
       if (next.length > uart.maxChars) next = next.slice(next.length - uart.maxChars);
+      var atBottom = els.termOut.scrollTop >= (els.termOut.scrollHeight - els.termOut.clientHeight - 10);
       els.termOut.textContent = next;
-      els.termOut.scrollTop = els.termOut.scrollHeight;
+      if (atBottom) els.termOut.scrollTop = els.termOut.scrollHeight;
     }
 
     function showUartModal(on){
