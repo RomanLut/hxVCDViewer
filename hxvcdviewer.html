@@ -1,0 +1,1572 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>hxVCDViewer v1.0.</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121926; --panel2:#0f1622; --text:#e6eefc; --muted:#9fb0c8;
+      --line:#2a3850;
+      --rowH:28px; --nameW:320px; --rulerH:34px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
+    .topbar{
+      display:flex;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
+      position:sticky;top:0;z-index:5
+    }
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,0.03)}
+    .pill label{font-size:12px;color:var(--muted)}
+    .pill input[type="range"]{width:180px}
+    .btn{cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,0.04);color:var(--text);padding:7px 10px;border-radius:10px;font-family:inherit;font-size:14px;line-height:1.2}
+    .btn:hover{border-color:#3a4d6b}
+    .layout{display:grid;grid-template-columns: var(--nameW) 1fr; height:calc(100vh - 56px)}
+    .names{border-right:1px solid var(--line);overflow:auto;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));position:relative}
+    .wave{
+      overflow:auto; position:relative; cursor:default;
+      background:
+        radial-gradient(1200px 700px at 50% 0%, rgba(85,209,139,0.08), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
+      user-select:none;
+    }
+    .names .header{height:var(--rulerH);display:flex;align-items:center;padding:0 10px;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel2);z-index:2}
+    .row{height:var(--rowH);display:flex;align-items:center;gap:10px;padding:0 10px;border-bottom:1px solid rgba(42,56,80,0.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .row small{color:var(--muted)}
+    .divider{height:1px;margin:10px 10px;background:rgba(42,56,80,0.9);position:relative}
+    .divider:after{content:"OFF";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:2px 8px;border:1px solid rgba(42,56,80,0.9);border-radius:999px;background:rgba(0,0,0,0.35);color:var(--muted);font-size:11px;letter-spacing:0.06em}
+    .row input{transform:scale(1.05)}
+    .row .sigName{overflow:hidden;text-overflow:ellipsis}
+    canvas{display:block;position:sticky;left:0;top:0;z-index:1}
+    .hint{padding:10px 12px;color:var(--muted);border-top:1px solid var(--line);font-size:12px;background:rgba(255,255,255,0.01)}
+    .status{color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45vw}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div style="font-weight:600;letter-spacing:0.02em;">hxVCDViewer v1.0.</div>
+    <div class="pill">
+      <label for="zoom">Zoom</label>
+      <input id="zoom" type="range" min="1" max="500" step="1" value="1" />
+      <span id="zoomVal" style="font-size:12px;color:var(--muted);min-width:50px;text-align:right;">1</span>
+    </div>
+    <div class="pill">
+      <label for="rowH">Row</label>
+      <input id="rowH" type="range" min="18" max="44" step="1" value="28" />
+      <span id="rowHVal" style="font-size:12px;color:var(--muted);min-width:46px;text-align:right;">28px</span>
+    </div>
+    <button class="btn" id="fit">Fit</button>
+    <button class="btn" id="allOn">All on</button>
+    <button class="btn" id="allOff">All off</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div id="dropOverlay" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:50;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);">
+    <div style="padding:18px 22px;border:1px dashed rgba(159,176,200,0.65);border-radius:18px;background:rgba(18,25,38,0.75);color:var(--text);font-size:14px;">
+      Drop VCD file to open
+    </div>
+  </div>
+
+  <div id="uartModal" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:80;background:rgba(0,0,0,0.62);backdrop-filter:blur(2px);">
+    <div style="width:min(90vw,1200px);height:90vh;border:1px solid var(--line);border-radius:18px;background:rgba(18,25,38,0.96);box-shadow:0 24px 60px rgba(0,0,0,0.55);display:flex;flex-direction:column;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(42,56,80,0.9);background:linear-gradient(180deg,rgba(18,25,38,0.98),rgba(15,22,34,0.98));">
+        <div style="font-weight:600;letter-spacing:0.02em;">UART Terminal</div>
+        <div id="uartInfo" style="margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55vw;"></div>
+        <button class="btn" id="uartClose" aria-label="Close" title="Close" style="padding:6px 10px;">✕</button>
+      </div>
+      <pre id="termOut" style="margin:0;flex:1;overflow:auto;padding:12px 12px;color:var(--text);background:rgba(0,0,0,0.25);font:12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;line-height:1.35;white-space:pre-wrap;word-break:break-word;"></pre>
+      <div style="display:flex;gap:10px;padding:10px 12px;border-top:1px solid rgba(42,56,80,0.9);background:rgba(0,0,0,0.12);">
+        <input id="termIn" type="text" placeholder="Type a line and press Enter" style="flex:1;min-width:0;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text);padding:10px 12px;font-family:inherit;font-size:14px;outline:none;" />
+        <button class="btn" id="termSend">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="names" id="names">
+      <div class="header">Signals</div>
+      <div id="sigList"></div>
+      <div class="hint">Mouse wheel: zoom. Drag with left mouse button: pan.</div>
+    </div>
+
+    <div class="wave" id="waveWrap">
+      <div id="emptyWrap" style="position:sticky;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:auto;">
+        <div style="pointer-events:auto;width:100%;max-width:520px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,0.03);padding:16px 14px;text-align:center;">
+          <label for="file" class="btn" style="display:inline-block;margin:0 auto 7px auto;">Load File...</label>
+          <input id="file" type="file" accept=".vcd,.txt" style="display:none;" />
+          <button class="btn" id="recvUart" style="display:block;margin:0 auto 7px auto;">Receive from UART...</button>
+          <div id="uartBlocked" style="display:none;margin:0 auto 7px auto;max-width:520px;color:var(--muted);font-size:12px;line-height:1.35;white-space:pre-line;">
+Web Serial is blocked in this embedded preview.
+Open this HTML as a standalone page (Chrome/Edge) or host it and allow the "serial" feature.
+          </div>
+          <button class="btn" id="loadExample" style="display:block;margin:0 auto 6px auto;">Load Example</button>
+          <div style="color:var(--muted);font-size:13px;line-height:1.1;margin-bottom:6px;">OR</div>
+          <div style="color:var(--muted);font-size:13px;line-height:1.35;white-space:pre-line;">Drag And Drop VCD file
+OR
+pass VCD File url in ?url= query parameter
+OR
+pass VCD contents in ?data= url query parameter
+</div>
+        </div>
+      </div>
+      <canvas id="canvas"></canvas>
+      <div id="spacer" aria-hidden="true" style="width:1px;height:1px;"></div>
+      <div id="tooltip" style="position:absolute;pointer-events:none;display:none;z-index:10;left:0;top:0;padding:6px 8px;border:1px solid rgba(42,56,80,0.9);border-radius:10px;background:rgba(0,0,0,0.75);color:var(--text);font:12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;white-space:pre;box-shadow:0 10px 30px rgba(0,0,0,0.35);"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+
+    // NOTE: This file intentionally avoids single quotes in JS to prevent breakage
+    // in environments that render the HTML via document.write with single-quoted strings.
+
+    var els = {
+      file: document.getElementById("file"),
+      recvUart: document.getElementById("recvUart"),
+      loadExample: document.getElementById("loadExample"),
+      zoom: document.getElementById("zoom"),
+      zoomVal: document.getElementById("zoomVal"),
+      rowH: document.getElementById("rowH"),
+      rowHVal: document.getElementById("rowHVal"),
+      fit: document.getElementById("fit"),
+      allOn: document.getElementById("allOn"),
+      allOff: document.getElementById("allOff"),
+      status: document.getElementById("status"),
+      sigList: document.getElementById("sigList"),
+      emptyWrap: document.getElementById("emptyWrap"),
+      names: document.getElementById("names"),
+      waveWrap: document.getElementById("waveWrap"),
+      canvas: document.getElementById("canvas"),
+      tooltip: document.getElementById("tooltip"),
+      spacer: document.getElementById("spacer"),
+      dropOverlay: document.getElementById("dropOverlay"),
+      uartModal: document.getElementById("uartModal"),
+      uartClose: document.getElementById("uartClose"),
+      uartInfo: document.getElementById("uartInfo"),
+      termOut: document.getElementById("termOut"),
+      termIn: document.getElementById("termIn"),
+      termSend: document.getElementById("termSend"),
+      uartBlocked: document.getElementById("uartBlocked")
+    };
+
+    if (!els.waveWrap || !els.canvas || !els.sigList || !els.zoom || !els.rowH || !els.file) return;
+
+    var ctx = els.canvas.getContext("2d");
+
+    var vcd = { timescale:null, signals:[], idToIndex:new Map(), tMax:0 };
+    var view = {
+      zoom: Math.max(1, Math.round(parseFloat(els.zoom.value) || 1)),
+      rowH: parseInt(els.rowH.value, 10),
+      pxPerTime: 1,
+      timePadL: 10,
+      hoverRow: -1,
+      hoverActive: false,
+      hoverCanvasX: 0
+    };
+
+    function setCSSVar(name,val){ document.documentElement.style.setProperty(name,val); }
+    function setStatus(msg){ els.status.textContent = msg; }
+    function hideTooltip(){ els.tooltip.style.display = "none"; }
+
+    function assertOk(cond, msg){ if (!cond) throw new Error(msg); }
+
+    function vecToNum(v){
+      if (typeof v !== "string") return null;
+      if (!/^[01]+$/.test(v)) return null;
+      return parseInt(v, 2);
+    }
+
+    function parseTimescaleToSeconds(ts){
+      if (!ts) return null;
+      var s = String(ts).trim();
+      var m = s.match(/^([0-9]+)\s*([a-zA-Z]+)\b/);
+      if (!m) return null;
+      var n = parseInt(m[1], 10);
+      if (!isFinite(n) || n <= 0) return null;
+      var unit = m[2].toLowerCase();
+      var mul = null;
+      if (unit === "s" || unit === "sec" || unit === "secs" || unit === "second" || unit === "seconds") mul = 1;
+      else if (unit === "ms") mul = 1e-3;
+      else if (unit === "us") mul = 1e-6;
+      else if (unit === "ns") mul = 1e-9;
+      else if (unit === "ps") mul = 1e-12;
+      else if (unit === "fs") mul = 1e-15;
+      if (mul == null) return null;
+      return n * mul;
+    }
+
+    function formatScaledTime(t, timescale){
+      var step = parseTimescaleToSeconds(timescale);
+      if (step == null) return null;
+      var sec = t * step;
+      if (!isFinite(sec)) return null;
+      var abs = Math.abs(sec);
+      var unit = "s";
+      var div = 1;
+      if (abs < 1e-12){ unit = "fs"; div = 1e-15; }
+      else if (abs < 1e-9){ unit = "ps"; div = 1e-12; }
+      else if (abs < 1e-6){ unit = "ns"; div = 1e-9; }
+      else if (abs < 1e-3){ unit = "us"; div = 1e-6; }
+      else if (abs < 1){ unit = "ms"; div = 1e-3; }
+      else { unit = "s"; div = 1; }
+      var vv = sec / div;
+      var str = (Math.round(vv * 1000) / 1000).toString();
+      return str + " " + unit;
+    }
+
+    function formatTime(t){
+      return String(t) + (vcd.timescale ? (" " + vcd.timescale) : "");
+    }
+
+    function formatHz(hz){
+      if (!isFinite(hz) || hz <= 0) return null;
+      var abs = Math.abs(hz);
+      var unit = "Hz";
+      var div = 1;
+      if (abs >= 1e9){ unit = "GHz"; div = 1e9; }
+      else if (abs >= 1e6){ unit = "MHz"; div = 1e6; }
+      else if (abs >= 1e3){ unit = "kHz"; div = 1e3; }
+      else { unit = "Hz"; div = 1; }
+      var v = hz / div;
+      var s = (Math.round(v * 1000) / 1000).toString();
+      return s + " " + unit;
+    }
+
+    function valueIndexAtOrBefore(changes, t, strict){
+      if (!changes || changes.length === 0) return -1;
+      var lo = 0, hi = changes.length - 1, ans = -1;
+      while (lo <= hi){
+        var mid = (lo + hi) >> 1;
+        var ok = strict ? (changes[mid].t < t) : (changes[mid].t <= t);
+        if (ok){ ans = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      return ans;
+    }
+
+    function avgFreqFromRisingEdgesInRange(signal, t0, t1, timescale){
+      if (!signal || signal.isVector) return null;
+      if (!isFinite(t0) || !isFinite(t1) || t1 <= t0) return null;
+      var step = parseTimescaleToSeconds(timescale);
+      if (step == null) return null;
+
+      var ch = signal.changes;
+      if (!ch || ch.length === 0) return null;
+
+      var prevIdx = valueIndexAtOrBefore(ch, t0, false);
+      var prev = (prevIdx >= 0) ? ch[prevIdx].v : null;
+      var firstIdx = prevIdx + 1;
+      if (firstIdx < 0) firstIdx = 0;
+
+      var rises = [];
+      for (var i = firstIdx; i < ch.length; i++){
+        var ct = ch[i].t;
+        if (ct > t1) break;
+        var cv = ch[i].v;
+        if (cv === "1" && prev === "0") rises.push(ct);
+        prev = cv;
+      }
+
+      if (rises.length < 2) return null;
+
+      var periodTicks = (rises[rises.length - 1] - rises[0]) / (rises.length - 1);
+      if (!isFinite(periodTicks) || periodTicks <= 0) return null;
+
+      var hz = 1 / (periodTicks * step);
+      return formatHz(hz);
+    }
+
+    function getViewportTimeRange(){
+      var w = els.waveWrap.clientWidth;
+      var px = view.pxPerTime;
+      if (!isFinite(px) || px <= 0) return null;
+      if (!isFinite(w) || w <= 0) return null;
+      var sx = els.waveWrap.scrollLeft;
+      var t0 = (sx - view.timePadL) / px;
+      var t1 = (sx + w - view.timePadL) / px;
+      if (!isFinite(t0) || !isFinite(t1)) return null;
+      t0 = Math.max(0, Math.min(vcd.tMax || 0, t0));
+      t1 = Math.max(0, Math.min(vcd.tMax || 0, t1));
+      if (t1 < t0){ var tmp=t0; t0=t1; t1=tmp; }
+      return { t0: t0, t1: t1 };
+    }
+
+    var hoverRAF = 0;
+    var lastHoverEvent = null;
+
+    function isAcceptedFile(f){
+      if (!f) return false;
+      var name = String(f.name || "").toLowerCase();
+      if (name.endsWith(".vcd") || name.endsWith(".txt")) return true;
+      var type = String(f.type || "").toLowerCase();
+      if (type === "text/plain" || type === "application/octet-stream" || type === "") return true;
+      return false;
+    }
+
+    function loadFromFileObject(f){
+      if (!f) return;
+      if (!isAcceptedFile(f)){
+        setStatus("Unsupported file. Please drop a .vcd file.");
+        return;
+      }
+      setStatus("Reading " + (f.name || "file") + " ...");
+      var r = new FileReader();
+      r.onerror = function(){ setStatus("Failed to read file."); };
+      r.onload = function(){ loadFromText(String(r.result || ""), f.name || "dropped.vcd"); };
+      r.readAsText(f);
+    }
+
+    function loadFromUrl(url){
+      if (!url) return;
+      try{
+        setStatus("Loading " + url + " ...");
+        fetch(url, { cache: "no-store" }).then(function(res){
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.text();
+        }).then(function(txt){
+          loadFromText(String(txt || ""), url.split("/").pop() || "remote.vcd");
+        }).catch(function(err){
+          console.error(err);
+          setStatus("Failed to load URL: " + url);
+        });
+      } catch (e){
+        console.error(e);
+        setStatus("Failed to load URL: " + url);
+      }
+    }
+
+    function base64ToText(b64){
+      if (!b64) return null;
+      var s = String(b64).trim();
+      if (!s) return null;
+      if (s.indexOf("base64,") >= 0) s = s.split("base64,").pop();
+      s = s.replace(/\s+/g, "");
+      s = s.replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      try{
+        var bin = atob(s);
+        return bin;
+      } catch (e){
+        return null;
+      }
+    }
+
+    function looksLikeVCD(txt){
+      if (!txt) return false;
+      var s = String(txt);
+      if (s.indexOf("$enddefinitions") >= 0) return true;
+      if (s.indexOf("$var") >= 0 && s.indexOf("#") >= 0) return true;
+      return false;
+    }
+
+    function decodeDataParam(raw){
+      if (raw == null) return null;
+      var s = String(raw);
+      try{
+        var dec = decodeURIComponent(s);
+        if (looksLikeVCD(dec)) return dec;
+      } catch (e) {}
+
+      var b = base64ToText(s);
+      if (b && looksLikeVCD(b)) return b;
+
+      if (b) return b;
+      try{ return decodeURIComponent(s); } catch (e2) { return null; }
+    }
+
+    function updateEmptyState(){
+      var show = (!vcd || !vcd.signals || vcd.signals.length === 0);
+      if (els.emptyWrap) els.emptyWrap.style.display = show ? "flex" : "none";
+    }
+
+    function clearAll(){
+      vcd = { timescale:null, signals:[], idToIndex:new Map(), tMax:0 };
+      els.sigList.innerHTML = "";
+      els._sigRows = [];
+      hideTooltip();
+      view.hoverActive = false;
+      view.hoverRow = -1;
+      updateEmptyState();
+      resizeAndRender();
+    }
+
+    function loadFromText(text, label){
+      clearAll();
+      var name = label || "vcd";
+      setStatus("Parsing " + name + " ...");
+      try{
+        vcd = parseVCD(String(text||""));
+        for (var i=0;i<vcd.signals.length;i++) vcd.signals[i].selected = true;
+        computeVectorStats();
+        buildSignalList();
+        setStatus("");
+
+        // After any successful load, always start in FIT mode.
+        fitToView();
+        els.waveWrap.scrollTop = 0;
+        els.names.scrollTop = 0;
+      } catch (e){
+        console.error(e);
+        clearAll();
+        setStatus("Failed to parse VCD.");
+      }
+    }
+
+    function parseVCD(text){
+      var lines = text.split(/\r?\n/);
+      var scope = [];
+      var inHeader = true;
+      var currentTime = 0;
+
+      var signals = [];
+      var idToIndex = new Map();
+      var tMax = 0;
+      var timescale = null;
+
+      function fullScope(){ return scope.length ? scope.join(".") : " "; }
+
+      function addSignal(obj){
+        var sc = fullScope().trim();
+        var fullName = (sc ? (sc + ".") : "") + obj.name;
+        var isVector = (obj.width|0) > 1;
+        var sig = {
+          id: obj.id,
+          name: obj.name,
+          width: obj.width|0,
+          type: obj.type,
+          scope: sc,
+          fullName: fullName,
+          changes: [],
+          selected: true,
+          isVector: isVector,
+          minVal: undefined,
+          maxVal: undefined
+        };
+        idToIndex.set(obj.id, signals.length);
+        signals.push(sig);
+      }
+
+      function pushChange(id, value){
+        var idx = idToIndex.get(id);
+        if (idx === undefined) return;
+        var s = signals[idx];
+        var ch = s.changes;
+        if (ch.length && ch[ch.length-1].v === value) return;
+        ch.push({ t: currentTime, v: value });
+      }
+
+      for (var i=0; i<lines.length; i++){
+        var line = String(lines[i]).trim();
+        if (!line) continue;
+
+        if (inHeader){
+          if (line.indexOf("$scope") === 0){ var p=line.split(/\s+/); if (p[2]) scope.push(p[2]); continue; }
+          if (line.indexOf("$upscope") === 0){ scope.pop(); continue; }
+          if (line.indexOf("$timescale") === 0){
+            var ts=line;
+            while(ts.indexOf("$end") < 0 && i<lines.length-1){ i++; ts += " " + String(lines[i]).trim(); }
+            timescale = ts.replace("$timescale","").replace("$end","").trim();
+            continue;
+          }
+          if (line.indexOf("$var") === 0){
+            var pv=line.split(/\s+/);
+            if (pv.length >= 6) addSignal({ type:pv[1], width:parseInt(pv[2],10)||1, id:pv[3], name:pv[4] });
+            continue;
+          }
+          if (line.indexOf("$enddefinitions") === 0){ inHeader = false; continue; }
+          continue;
+        }
+
+        if (line[0] === "#"){
+          var t = parseInt(line.slice(1), 10);
+          if (!Number.isNaN(t)) currentTime = t;
+          if (currentTime > tMax) tMax = currentTime;
+          continue;
+        }
+        if (line[0] === "$") continue;
+
+        var first = line[0];
+        if (first === "b" || first === "B" || first === "r" || first === "R"){
+          var sp = line.split(/\s+/);
+          if (sp.length >= 2) pushChange(sp[1], sp[0].slice(1));
+          continue;
+        }
+
+        if (first === "0" || first === "1" || first === "x" || first === "X" || first === "z" || first === "Z"){
+          var id = line.slice(1).trim();
+          if (id) pushChange(id, first.toLowerCase());
+          continue;
+        }
+      }
+
+      if (!tMax){
+        for (var j=0; j<signals.length; j++){
+          var last = signals[j].changes[signals[j].changes.length-1];
+          if (last && last.t > tMax) tMax = last.t;
+        }
+      }
+
+      return { timescale: timescale, signals: signals, idToIndex: idToIndex, tMax: tMax };
+    }
+
+    function computeVectorStats(){
+      for (var i=0;i<vcd.signals.length;i++){
+        var s = vcd.signals[i];
+        if (!s.isVector){ s.minVal = undefined; s.maxVal = undefined; continue; }
+        var min = Infinity, max = -Infinity;
+        for (var k=0;k<s.changes.length;k++){
+          var n = vecToNum(s.changes[k].v);
+          if (n == null) continue;
+          if (n < min) min = n;
+          if (n > max) max = n;
+        }
+        if (min === Infinity){ min = 0; max = 1; }
+        if (min === max){ max = min + 1; }
+        s.minVal = min;
+        s.maxVal = max;
+      }
+    }
+
+    function buildSignalList(){
+      els.sigList.innerHTML = "";
+      els._sigRows = [];
+      var frag = document.createDocumentFragment();
+
+      var on = [];
+      var off = [];
+      for (var i0=0;i0<vcd.signals.length;i0++){
+        if (vcd.signals[i0].selected) on.push(vcd.signals[i0]);
+        else off.push(vcd.signals[i0]);
+      }
+
+      function addRow(s){
+        var row = document.createElement("div");
+        row.className = "row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!s.selected;
+        cb.onchange = function(){
+          s.selected = cb.checked;
+          buildSignalList();
+          view.hoverRow = -1;
+          view.hoverActive = false;
+          hideTooltip();
+          resizeAndRender();
+        };
+        var name = document.createElement("div");
+        name.className = "sigName";
+        name.title = s.fullName;
+        name.textContent = s.fullName;
+        var meta = document.createElement("small");
+        meta.textContent = s.isVector ? ("[" + s.width + "]") : "[1]";
+        row.append(cb, name, meta);
+        frag.appendChild(row);
+        els._sigRows.push(row);
+      }
+
+      for (var i=0;i<on.length;i++) addRow(on[i]);
+      if (off.length){
+        var div = document.createElement("div");
+        div.className = "divider";
+        frag.appendChild(div);
+        for (var j=0;j<off.length;j++) addRow(off[j]);
+      }
+
+      els.sigList.appendChild(frag);
+      updateEmptyState();
+    }
+
+    function getVisibleSignals(){
+      var out = [];
+      for (var i=0;i<vcd.signals.length;i++) if (vcd.signals[i].selected) out.push(vcd.signals[i]);
+      return out;
+    }
+
+    function valueAtTime(signal, t){
+      var ch = signal.changes;
+      if (!ch || ch.length === 0) return null;
+      var lo = 0, hi = ch.length - 1, ans = -1;
+      while (lo <= hi){
+        var mid = (lo + hi) >> 1;
+        if (ch[mid].t <= t){ ans = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      if (ans < 0) return null;
+      return ch[ans].v;
+    }
+
+    function pulseDurationAt(signal, t, tMax){
+      if (!signal || signal.isVector) return null;
+      var ch = signal.changes;
+      if (!ch || ch.length === 0) return null;
+      var lo = 0, hi = ch.length - 1, ans = -1;
+      while (lo <= hi){
+        var mid = (lo + hi) >> 1;
+        if (ch[mid].t <= t){ ans = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      if (ans < 0) return null;
+      var start = ch[ans].t;
+      var end = (ans + 1 < ch.length) ? ch[ans + 1].t : (tMax || 0);
+      if (!isFinite(start) || !isFinite(end) || end < start) return null;
+      var v = ch[ans].v;
+      if (v !== "0" && v !== "1") return null;
+      return { start: start, end: end, dur: end - start, v: v };
+    }
+
+    function showTooltip(x, y, text){
+      var tip = els.tooltip;
+      tip.textContent = text;
+      tip.style.display = "block";
+
+      var wrapRect = els.waveWrap.getBoundingClientRect();
+      var tipRect = tip.getBoundingClientRect();
+
+      var leftV = x + 12;
+      var topV = y + 12;
+
+      var maxLeftV = wrapRect.width - tipRect.width - 8;
+      var maxTopV = wrapRect.height - tipRect.height - 8;
+
+      if (leftV > maxLeftV) leftV = x - tipRect.width - 12;
+      if (topV > maxTopV) topV = y - tipRect.height - 12;
+      if (leftV < 8) leftV = 8;
+      if (topV < 8) topV = 8;
+
+      tip.style.left = (leftV + els.waveWrap.scrollLeft) + "px";
+      tip.style.top = (topV + els.waveWrap.scrollTop) + "px";
+    }
+
+    function chooseGridStep(pxPerTime){
+      var px = pxPerTime;
+      if (!isFinite(px) || px <= 0) px = 1;
+      var minPx = 70;
+      var step = 1;
+      while ((step * px) < minPx && step < 1e15) step *= 10;
+      return step;
+    }
+
+    function calcPxPerTime(viewportW, tMax, zoom){
+      var w = Math.max(1, viewportW);
+      var t = Math.max(1, tMax);
+      var usable = Math.max(1, w - view.timePadL - 40);
+      var fitPx = usable / t;
+      var z = Math.max(1, zoom || 1);
+      return Math.max(0.00001, fitPx * z);
+    }
+
+    function resizeAndRender(){
+      setCSSVar("--rowH", view.rowH + "px");
+
+      var sigs = getVisibleSignals();
+      var rulerH = 34;
+
+      var wrapW = Math.max(200, els.waveWrap.clientWidth);
+      var wrapH = Math.max(200, els.waveWrap.clientHeight);
+
+      view.pxPerTime = calcPxPerTime(wrapW, vcd.tMax || 1, view.zoom);
+
+      var tMax = vcd.tMax || 1;
+      var virtualW = Math.max(wrapW, Math.ceil(view.timePadL + tMax * view.pxPerTime + 200));
+      var virtualH = Math.max(wrapH, rulerH + (sigs.length || 1) * view.rowH);
+
+      els.spacer.style.width = virtualW + "px";
+      els.spacer.style.height = virtualH + "px";
+
+      els.canvas.width = Math.floor(wrapW * devicePixelRatio);
+      els.canvas.height = Math.floor(wrapH * devicePixelRatio);
+      els.canvas.style.width = wrapW + "px";
+      els.canvas.style.height = wrapH + "px";
+
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+      render();
+    }
+
+    function drawHoverLine(w, h, rulerH){
+      if (!view.hoverActive) return;
+      var x = view.hoverCanvasX;
+      if (!isFinite(x)) return;
+      if (x < 0 || x > w) return;
+      ctx.strokeStyle = "rgba(85,209,139,0.55)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, rulerH);
+      ctx.lineTo(x + 0.5, h);
+      ctx.stroke();
+    }
+
+    function render(){
+      if (els._sigRows && els._sigRows.length){
+        for (var rr=0; rr<els._sigRows.length; rr++){
+          els._sigRows[rr].style.background = (rr === view.hoverRow) ? "rgba(255,255,255,0.08)" : "";
+        }
+      }
+
+      var w = parseFloat(els.canvas.style.width) || els.waveWrap.clientWidth;
+      var h = parseFloat(els.canvas.style.height) || els.waveWrap.clientHeight;
+      if (!w || !h) return;
+      var rulerH = 34;
+
+      ctx.clearRect(0,0,w,h);
+
+      var scrollX = els.waveWrap.scrollLeft;
+      var scrollY = els.waveWrap.scrollTop;
+
+      var x0 = view.timePadL;
+      var timeToX = function(t){ return x0 + t * view.pxPerTime - scrollX; };
+
+      ctx.fillStyle = "rgba(15,22,34,0.9)";
+      ctx.fillRect(0,0,w,rulerH);
+      ctx.strokeStyle = "rgba(42,56,80,0.9)";
+      ctx.beginPath();
+      ctx.moveTo(0,rulerH+0.5);
+      ctx.lineTo(w,rulerH+0.5);
+      ctx.stroke();
+
+      var gridStep = chooseGridStep(view.pxPerTime);
+      ctx.font = "12px ui-monospace";
+      ctx.textBaseline = "middle";
+
+      var tMaxAll = vcd.tMax || 0;
+      var px = view.pxPerTime || 1;
+      var t0v = (scrollX - view.timePadL) / px;
+      var t1v = (scrollX + w - view.timePadL) / px;
+      if (!isFinite(t0v)) t0v = 0;
+      if (!isFinite(t1v)) t1v = tMaxAll;
+      if (t1v < t0v){ var tmpT=t0v; t0v=t1v; t1v=tmpT; }
+      t0v = Math.max(0, Math.min(tMaxAll, t0v));
+      t1v = Math.max(0, Math.min(tMaxAll, t1v));
+
+      var startTick = Math.ceil(t0v / gridStep) * gridStep;
+      if (startTick === 0) startTick += gridStep;
+
+      for (var t = startTick; t <= t1v; t += gridStep){
+        var x = timeToX(t);
+        if (x < -80 || x > w + 80) continue;
+        ctx.strokeStyle = "rgba(42,56,80,0.45)";
+        ctx.beginPath();
+        ctx.moveTo(x+0.5, rulerH);
+        ctx.lineTo(x+0.5, h);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(159,176,200,0.9)";
+        ctx.fillText(String(t), x+4, rulerH/2);
+      }
+
+      drawHoverLine(w, h, rulerH);
+
+      var sigs = getVisibleSignals();
+
+      for (var idx = 0; idx < sigs.length; idx++){
+        var yBg = rulerH + idx * view.rowH - scrollY;
+        if (yBg + view.rowH >= rulerH && yBg <= h){
+          if (idx === view.hoverRow){
+            ctx.fillStyle = "rgba(255,255,255,0.08)";
+            ctx.fillRect(0, yBg, w, view.rowH);
+          }
+        }
+
+        var s = sigs[idx];
+        var y = rulerH + idx * view.rowH - scrollY;
+        var mid = y + view.rowH/2;
+
+        if (y > h + 2 || y + view.rowH < rulerH - 2) continue;
+
+        ctx.strokeStyle = "rgba(42,56,80,0.55)";
+        ctx.beginPath();
+        ctx.moveTo(0, y+0.5);
+        ctx.lineTo(w, y+0.5);
+        ctx.stroke();
+
+        if (!s.changes.length){
+          ctx.strokeStyle = "rgba(255,204,102,0.6)";
+          ctx.beginPath();
+          ctx.moveTo(0, mid);
+          ctx.lineTo(w, mid);
+          ctx.stroke();
+          continue;
+        }
+
+        if (!s.isVector){
+          var lastV = s.changes[0].v;
+          for (var ci=0; ci<s.changes.length; ci++){ if (s.changes[ci].t <= 0) lastV = s.changes[ci].v; else break; }
+
+          var high = y + 6;
+          var low  = y + view.rowH - 6;
+          var baseY = low;
+          var ly = function(v){ return v === "1" ? high : (v === "0" ? low : mid); };
+
+          ctx.fillStyle = "rgba(85,209,139,0.25)";
+          var segStartT = 0;
+          var curV = lastV;
+          for (var cii=0; cii<s.changes.length; cii++){
+            var ch = s.changes[cii];
+            var tt = ch.t;
+            if (curV === "1"){
+              var xA = timeToX(segStartT);
+              var xB = timeToX(tt);
+              ctx.fillRect(xA, high, xB - xA, baseY - high);
+            }
+            curV = ch.v;
+            segStartT = tt;
+          }
+          if (curV === "1"){
+            var xA2 = timeToX(segStartT);
+            var xB2 = timeToX(vcd.tMax);
+            ctx.fillRect(xA2, high, xB2 - xA2, baseY - high);
+          }
+
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(85,209,139,0.95)";
+          ctx.beginPath();
+          ctx.moveTo(timeToX(0), ly(lastV));
+          for (var ciii=0; ciii<s.changes.length; ciii++){
+            var ch2 = s.changes[ciii];
+            var xx = timeToX(ch2.t);
+            ctx.lineTo(xx, ly(lastV));
+            ctx.lineTo(xx, ly(ch2.v));
+            lastV = ch2.v;
+          }
+          ctx.lineTo(timeToX(vcd.tMax), ly(lastV));
+          ctx.stroke();
+          ctx.lineWidth = 1;
+
+        } else {
+          var rowTop = y + 4;
+          var rowBot = y + view.rowH - 4;
+          var minV = (s.minVal != null) ? s.minVal : 0;
+          var maxV = (s.maxVal != null) ? s.maxVal : (minV + 1);
+          var range = (maxV - minV) || 1;
+
+          var toY = function(n){
+            var k = (n - minV) / range;
+            var kk = k < 0 ? 0 : (k > 1 ? 1 : k);
+            return rowBot - kk * (rowBot - rowTop);
+          };
+
+          var curNum = null;
+          for (var cj=0; cj<s.changes.length; cj++){
+            if (s.changes[cj].t <= 0){
+              var nn0 = vecToNum(s.changes[cj].v);
+              curNum = (nn0 != null) ? nn0 : null;
+            } else break;
+          }
+
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(85,209,139,0.95)";
+          ctx.fillStyle = "rgba(85,209,139,0.25)";
+          ctx.beginPath();
+
+          if (curNum != null) ctx.moveTo(timeToX(0), toY(curNum));
+
+          for (var ck=0; ck<s.changes.length; ck++){
+            var chv = s.changes[ck];
+            var ttt = chv.t;
+            if (ttt < 0) continue;
+            var nn = vecToNum(chv.v);
+
+            if (nn == null){
+              curNum = null;
+              continue;
+            }
+
+            if (curNum == null){
+              ctx.moveTo(timeToX(ttt), toY(nn));
+              curNum = nn;
+              continue;
+            }
+
+            var xT = timeToX(ttt);
+            ctx.lineTo(xT, toY(curNum));
+            ctx.lineTo(xT, toY(nn));
+            curNum = nn;
+          }
+
+          if (curNum != null) ctx.lineTo(timeToX(vcd.tMax), toY(curNum));
+
+          ctx.lineTo(timeToX(vcd.tMax), rowBot);
+          ctx.lineTo(timeToX(0), rowBot);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
+      }
+    }
+
+    function fitToView(){
+      view.zoom = 1;
+      els.zoom.value = "1";
+      els.zoomVal.textContent = "1";
+      resizeAndRender();
+      els.waveWrap.scrollLeft = 0;
+    }
+
+    els.waveWrap.addEventListener("scroll", function(){
+      els.names.scrollTop = els.waveWrap.scrollTop;
+      hideTooltip();
+      view.hoverActive = false;
+      view.hoverRow = -1;
+      render();
+    });
+    els.names.addEventListener("scroll", function(){
+      els.waveWrap.scrollTop = els.names.scrollTop;
+    });
+
+    function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+
+    function applyZoomAt(mouseXInWrap, factor, dir){
+      var oldZoom = view.zoom;
+      var newZoomF = clamp(oldZoom * factor, parseFloat(els.zoom.min), parseFloat(els.zoom.max));
+      var newZoom = Math.max(1, Math.round(newZoomF));
+      if (newZoom === oldZoom){
+        newZoom = clamp(oldZoom + (dir || 0), parseFloat(els.zoom.min), parseFloat(els.zoom.max));
+        newZoom = Math.max(1, Math.round(newZoom));
+      }
+      if (!isFinite(newZoom) || newZoom <= 0) return;
+
+      var oldPx = view.pxPerTime;
+      if (!isFinite(oldPx) || oldPx <= 0) oldPx = calcPxPerTime(els.waveWrap.clientWidth || 1, vcd.tMax || 1, oldZoom);
+
+      var scrollLeft = els.waveWrap.scrollLeft;
+      var t = (mouseXInWrap + scrollLeft - view.timePadL) / oldPx;
+      if (!isFinite(t)) t = 0;
+
+      view.zoom = newZoom;
+      els.zoom.value = String(newZoom);
+      els.zoomVal.textContent = String(newZoom);
+
+      resizeAndRender();
+
+      var newPx = view.pxPerTime;
+      var newScrollLeft = view.timePadL + t * newPx - mouseXInWrap;
+      if (isFinite(newScrollLeft)) els.waveWrap.scrollLeft = Math.max(0, newScrollLeft);
+
+      render();
+    }
+
+    els.waveWrap.addEventListener("wheel", function(e){
+      e.preventDefault();
+      var dy = e.deltaY;
+      if (!isFinite(dy)) dy = 0;
+      var zoomIntensity = 0.002;
+      var factor = Math.exp(-dy * zoomIntensity);
+      var rect = els.waveWrap.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var dir = (dy < 0) ? +1 : -1;
+      applyZoomAt(mx, factor, dir);
+    }, { passive: false });
+
+    var isPanning = false;
+    var panStartX = 0;
+    var panStartY = 0;
+    var panStartScrollLeft = 0;
+    var panStartScrollTop = 0;
+
+    function panBegin(e){
+      var tgt = e.target;
+      if (tgt && tgt.closest && tgt.closest("input,button,select,textarea,label,a")) return;
+      if (e.button !== 0) return;
+      isPanning = true;
+      hideTooltip();
+      view.hoverActive = false;
+      view.hoverRow = -1;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      panStartScrollLeft = els.waveWrap.scrollLeft;
+      panStartScrollTop = els.waveWrap.scrollTop;
+      els.waveWrap.style.cursor = "grabbing";
+      try { els.waveWrap.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    }
+
+    function panMove(e){
+      if (!isPanning) return;
+      var dx = e.clientX - panStartX;
+      var dy = e.clientY - panStartY;
+      els.waveWrap.scrollLeft = panStartScrollLeft - dx;
+      els.waveWrap.scrollTop = panStartScrollTop - dy;
+      els.names.scrollTop = els.waveWrap.scrollTop;
+      render();
+      e.preventDefault();
+    }
+
+    function panEnd(e){
+      if (!isPanning) return;
+      isPanning = false;
+      els.waveWrap.style.cursor = "default";
+      try { els.waveWrap.releasePointerCapture(e.pointerId); } catch (err) {}
+      render();
+    }
+
+    els.waveWrap.addEventListener("pointerdown", panBegin);
+    els.waveWrap.addEventListener("pointermove", panMove);
+    els.waveWrap.addEventListener("pointerup", panEnd);
+    els.waveWrap.addEventListener("pointercancel", panEnd);
+    els.waveWrap.addEventListener("lostpointercapture", function(){
+      if (isPanning){ isPanning=false; els.waveWrap.style.cursor="default"; }
+    });
+
+    function buildTooltipText(s, t){
+      var v = valueAtTime(s, t);
+      var scaled = formatScaledTime(t, vcd.timescale);
+
+      var lines = [];
+      lines.push(s.fullName);
+      lines.push("t: " + formatTime(t) + (scaled ? (" (=" + scaled + ")") : ""));
+
+      var valStr = "∅";
+      if (v != null){
+        if (s.isVector && /^[01]+$/.test(v)){
+          var dec = parseInt(v, 2);
+          var hex = "0x" + dec.toString(16).toUpperCase().padStart(Math.ceil(s.width / 4), "0");
+          valStr = dec + " (" + hex + ")";
+        } else if (!s.isVector && (v === "0" || v === "1")){
+          var d = (v === "1") ? 1 : 0;
+          var h = "0x" + d.toString(16).toUpperCase().padStart(2, "0");
+          valStr = d + " (" + h + ")";
+        } else {
+          valStr = String(v);
+        }
+      }
+      lines.push("value: " + valStr);
+
+      if (!s.isVector){
+        var pd = pulseDurationAt(s, t, vcd.tMax || 0);
+        if (pd && pd.dur != null){
+          var pdScaled = formatScaledTime(pd.dur, vcd.timescale);
+          if (pdScaled) lines.push("pulse: " + pdScaled);
+        }
+
+        var vr = getViewportTimeRange();
+        if (vr){
+          var hzStr = avgFreqFromRisingEdgesInRange(s, vr.t0, vr.t1, vcd.timescale);
+          if (hzStr) lines.push("freq: " + hzStr);
+        }
+      }
+
+      return lines.join("\n");
+    }
+
+    els.waveWrap.addEventListener("pointermove", function(e){
+      if (isPanning) return;
+      lastHoverEvent = e;
+      if (hoverRAF) return;
+      hoverRAF = requestAnimationFrame(function(){
+        hoverRAF = 0;
+        var ev = lastHoverEvent;
+        if (!ev) return;
+
+        var canvasRect = els.canvas.getBoundingClientRect();
+        var wrapRect = els.waveWrap.getBoundingClientRect();
+        var mx = ev.clientX - canvasRect.left;
+        var my = ev.clientY - canvasRect.top;
+
+        view.hoverCanvasX = mx;
+        view.hoverActive = true;
+
+        var rulerH = 34;
+        var rowY = my - rulerH;
+        if (rowY < 0){
+          view.hoverRow = -1;
+          hideTooltip();
+          render();
+          return;
+        }
+
+        var rowIndex = Math.floor((rowY + els.waveWrap.scrollTop) / view.rowH);
+        var sigs = getVisibleSignals();
+        if (rowIndex < 0 || rowIndex >= sigs.length){
+          view.hoverRow = -1;
+          hideTooltip();
+          render();
+          return;
+        }
+
+        view.hoverRow = rowIndex;
+        var s = sigs[rowIndex];
+
+        var t = Math.round((mx + els.waveWrap.scrollLeft - view.timePadL) / (view.pxPerTime || 1));
+        if (t < 0 || t > (vcd.tMax || 0)){
+          hideTooltip();
+          render();
+          return;
+        }
+
+        var txt = buildTooltipText(s, t);
+        var relX = ev.clientX - wrapRect.left;
+        var relY = ev.clientY - wrapRect.top;
+        showTooltip(relX, relY, txt);
+        render();
+      });
+    });
+
+    els.waveWrap.addEventListener("pointerleave", function(){
+      view.hoverActive = false;
+      view.hoverRow = -1;
+      hideTooltip();
+      render();
+    });
+
+    els.file.addEventListener("change", function(e){
+      var f = e.target.files && e.target.files[0];
+      if (!f) return;
+      loadFromFileObject(f);
+      try { e.target.value = ""; } catch (err) {}
+    });
+
+    els.zoom.addEventListener("input", function(){
+      view.zoom = Math.max(1, Math.round(parseFloat(els.zoom.value) || 1));
+      els.zoom.value = String(view.zoom);
+      els.zoomVal.textContent = String(view.zoom);
+      resizeAndRender();
+    });
+
+    els.rowH.addEventListener("input", function(){
+      view.rowH = parseInt(els.rowH.value, 10);
+      els.rowHVal.textContent = String(view.rowH) + "px";
+      resizeAndRender();
+    });
+
+    els.fit.addEventListener("click", fitToView);
+
+    els.allOn.addEventListener("click", function(){
+      for (var i=0;i<vcd.signals.length;i++) vcd.signals[i].selected = true;
+      buildSignalList();
+      resizeAndRender();
+    });
+
+    els.allOff.addEventListener("click", function(){
+      for (var i=0;i<vcd.signals.length;i++) vcd.signals[i].selected = false;
+      buildSignalList();
+      resizeAndRender();
+    });
+
+    if (els.loadExample){
+      els.loadExample.addEventListener("click", function(){
+        try{
+          loadFromText(exampleVCD(), "example.vcd");
+        } catch (e){
+          console.error(e);
+          setStatus("Failed to load example VCD.");
+        }
+      });
+    }
+
+    // UART terminal (Web Serial)
+    var uart = {
+      port: null,
+      reader: null,
+      writer: null,
+      keepReading: false,
+      maxChars: 300000
+    };
+
+    function setUartInfo(msg){ if (els.uartInfo) els.uartInfo.textContent = msg || ""; }
+
+    function termSet(text){ if (els.termOut) els.termOut.textContent = String(text || ""); }
+
+    function termAppend(text){
+      if (!els.termOut) return;
+      var prev = els.termOut.textContent || "";
+      var next = prev + String(text || "");
+      if (next.length > uart.maxChars) next = next.slice(next.length - uart.maxChars);
+      els.termOut.textContent = next;
+      els.termOut.scrollTop = els.termOut.scrollHeight;
+    }
+
+    function showUartModal(on){
+      if (!els.uartModal) return;
+      els.uartModal.style.display = on ? "flex" : "none";
+      if (on){
+        termSet("");
+        if (els.termIn) els.termIn.value = "";
+        if (els.termIn) els.termIn.focus();
+      }
+    }
+
+    async function uartDisconnect(){
+      uart.keepReading = false;
+      try{ if (uart.reader) await uart.reader.cancel(); } catch (e) {}
+      try{ if (uart.reader) uart.reader.releaseLock(); } catch (e2) {}
+      uart.reader = null;
+      try{ if (uart.writer) uart.writer.releaseLock(); } catch (e3) {}
+      uart.writer = null;
+      try{ if (uart.port) await uart.port.close(); } catch (e4) {}
+      uart.port = null;
+      setUartInfo("");
+    }
+
+    async function uartReadLoop(){
+      if (!uart.reader) return;
+      uart.keepReading = true;
+      try{
+        while (uart.keepReading){
+          var r = await uart.reader.read();
+          if (!r) break;
+          if (r.done) break;
+          if (r.value != null) termAppend(r.value);
+        }
+      } catch (e){
+        termAppend("\n[UART] Read error\n");
+      }
+    }
+
+    async function uartConnectSelectedPort(port){
+      uart.port = port;
+      var baud = 115200;
+      await port.open({ baudRate: baud });
+
+      var decoder = new TextDecoderStream();
+      try{ port.readable.pipeTo(decoder.writable); } catch (e) {}
+      uart.reader = decoder.readable.getReader();
+
+      var encoder = new TextEncoderStream();
+      try{ encoder.readable.pipeTo(port.writable); } catch (e2) {}
+      uart.writer = encoder.writable.getWriter();
+
+      var info = "Connected, baud " + String(baud);
+      try{
+        if (port.getInfo){
+          var pi = port.getInfo();
+          if (pi && (pi.usbVendorId || pi.usbProductId)){
+            info += " | VID 0x" + String(pi.usbVendorId.toString(16)).toUpperCase() + " PID 0x" + String(pi.usbProductId.toString(16)).toUpperCase();
+          }
+        }
+      } catch (e3) {}
+      setUartInfo(info);
+      termAppend("[UART] Connected\n");
+      uartReadLoop();
+    }
+
+    async function openUartDialog(){
+      // Web Serial works only in secure contexts and can be blocked by Permissions-Policy
+      if (!navigator.serial || !navigator.serial.requestPort){
+        setStatus("Web Serial API is not available in this browser.");
+        return;
+      }
+      if (document.permissionsPolicy && document.permissionsPolicy.allowsFeature){
+        try{
+          if (!document.permissionsPolicy.allowsFeature("serial")){
+            setStatus("Web Serial is blocked by Permissions-Policy in this preview. Open as a standalone page.");
+            return;
+          }
+        } catch (e0) {}
+      }
+      showUartModal(true);
+      setUartInfo("Select UART port...");
+      try{
+        var port = await navigator.serial.requestPort({});
+        setUartInfo("Opening...");
+        await uartConnectSelectedPort(port);
+      } catch (e){
+        // Typical in embedded/iframe previews: "Access to the feature 'serial' is disallowed by permissions policy."
+        if (e && (e.name === "SecurityError" || String(e).indexOf("permissions policy") >= 0)){
+          setStatus("Web Serial is blocked by Permissions-Policy in this preview. Open as a standalone page.");
+          termAppend("[UART] Web Serial is blocked by Permissions-Policy in this preview.\n");
+        } else {
+          termAppend("[UART] Cancelled or failed\n");
+        }
+        console.error(e);
+        setUartInfo("");
+        showUartModal(false);
+      }
+    }
+
+    async function sendTermLine(){
+      if (!uart.writer) return;
+      var line = (els.termIn && els.termIn.value != null) ? String(els.termIn.value) : "";
+      if (!line) return;
+      try{
+        await uart.writer.write(line + "\n");
+      } catch (e){
+        termAppend("[UART] Write error\n");
+      }
+      if (els.termIn) els.termIn.value = "";
+      if (els.termIn) els.termIn.focus();
+    }
+
+    function updateUartAvailability(){
+      if (!els.recvUart) return;
+      var blocked = false;
+      var reason = "";
+      if (!navigator.serial || !navigator.serial.requestPort){
+        blocked = true;
+        reason = "Web Serial API is not available in this browser.";
+      } else if (document.permissionsPolicy && document.permissionsPolicy.allowsFeature){
+        try{
+          if (!document.permissionsPolicy.allowsFeature("serial")){
+            blocked = true;
+            reason = "Web Serial is blocked by Permissions-Policy in this embedded preview.";
+          }
+        } catch (e) {}
+      }
+      if (blocked){
+        els.recvUart.disabled = true;
+        els.recvUart.style.opacity = "0.5";
+        els.recvUart.style.cursor = "not-allowed";
+        els.recvUart.title = reason;
+        if (els.uartBlocked){
+          els.uartBlocked.style.display = "block";
+        }
+      } else {
+        els.recvUart.disabled = false;
+        els.recvUart.style.opacity = "1";
+        els.recvUart.style.cursor = "pointer";
+        els.recvUart.title = "";
+        if (els.uartBlocked){
+          els.uartBlocked.style.display = "none";
+        }
+      }
+    }
+
+    if (els.recvUart){
+      els.recvUart.addEventListener("click", function(){ openUartDialog(); });
+    }
+
+    if (els.uartClose){
+      els.uartClose.addEventListener("click", function(){
+        uartDisconnect();
+        showUartModal(false);
+      });
+    }
+
+    if (els.uartModal){
+      els.uartModal.addEventListener("click", function(e){
+        if (e.target === els.uartModal){
+          uartDisconnect();
+          showUartModal(false);
+        }
+      });
+    }
+
+    if (els.termSend){
+      els.termSend.addEventListener("click", function(){ sendTermLine(); });
+    }
+
+    if (els.termIn){
+      els.termIn.addEventListener("keydown", function(e){
+        if (e.key === "Enter"){
+          e.preventDefault();
+          sendTermLine();
+        }
+      });
+    }
+
+    window.addEventListener("beforeunload", function(){
+      try{ uartDisconnect(); } catch (e) {}
+    });
+
+    function exampleVCD(){
+      return [
+        "$date $end",
+        "$version canvas-vcd-viewer $end",
+        "$timescale 1ns $end",
+        "$scope module top $end",
+        "$var wire 1 ! clk $end",
+        "$var wire 1 \" rst $end",
+        "$var wire 1 # a $end",
+        "$var wire 1 $ b $end",
+        "$var wire 8 % data $end",
+        "$var wire 8 & sine $end",
+        "$upscope $end",
+        "$enddefinitions $end",
+        "#0",
+        "0!",
+        "1\"",
+        "0#",
+        "0$",
+        "b00000000 %",
+        "b10000000 &",
+        "#4",
+        "b11000000 &",
+        "#5",
+        "1!",
+        "#8",
+        "b11111111 &",
+        "#10",
+        "0\"",
+        "#12",
+        "b11000000 &",
+        "#15",
+        "0!",
+        "1#",
+        "b00001111 %",
+        "#16",
+        "b10000000 &",
+        "#20",
+        "1!",
+        "1$",
+        "b10101010 %",
+        "b01000000 &",
+        "#24",
+        "b00000001 &",
+        "#25",
+        "0!",
+        "#28",
+        "b01000000 &",
+        "#30",
+        "1!",
+        "0#",
+        "b11110000 %"
+      ].join("\n");
+    }
+
+    function runTests(){
+      (function(){
+        var px1 = calcPxPerTime(1000, 100, 1);
+        assertOk(Math.abs(px1 - 9.5) < 1e-9, "Test: zoom=1 should fit timeline, pxPerTime=" + px1);
+        var px500 = calcPxPerTime(1000, 100, 500);
+        assertOk(Math.abs(px500 - 4750) < 1e-9, "Test: zoom=500 should magnify 500x, pxPerTime=" + px500);
+
+        assertOk(chooseGridStep(200) === 1, "Test: chooseGridStep(200) should be 1");
+        assertOk(chooseGridStep(7) === 10, "Test: chooseGridStep(7) should be 10");
+        assertOk(chooseGridStep(0.8) === 100, "Test: chooseGridStep(0.8) should be 100");
+
+        assertOk(isAcceptedFile({ name: "a.vcd", type: "" }) === true, "Test: accept .vcd by name");
+        assertOk(isAcceptedFile({ name: "a.bin", type: "text/plain" }) === true, "Test: accept text/plain");
+        assertOk(isAcceptedFile({ name: "a.bin", type: "application/pdf" }) === false, "Test: reject pdf");
+      })();
+
+      (function(){
+        var step = parseTimescaleToSeconds("1ns");
+        assertOk(Math.abs(step - 1e-9) < 1e-18, "Test: parseTimescaleToSeconds(1ns)");
+        var st = formatScaledTime(150000, "1ns");
+        assertOk(st === "150 us", "Test: 150000 * 1ns should be 150 us, got " + st);
+      })();
+
+      var txt = exampleVCD();
+      assertOk(txt.indexOf("\n") >= 0, "Test: exampleVCD must contain real newlines");
+
+      (function(){
+        var b64 = null;
+        try { b64 = btoa(txt); } catch (e) { b64 = null; }
+        assertOk(!!b64, "Test: btoa(exampleVCD) should work");
+        var dec = decodeDataParam(b64);
+        assertOk(dec === txt, "Test: decodeDataParam(base64) must return original text");
+        var urlsafe = b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+        var dec2 = decodeDataParam(urlsafe);
+        assertOk(dec2 === txt, "Test: decodeDataParam(urlsafe base64) must return original text");
+      })();
+
+      var p = parseVCD(txt);
+      assertOk(p.signals.length === 6, "Test: expected 6 signals, got " + p.signals.length);
+      assertOk(p.tMax === 30, "Test: expected tMax=30, got " + p.tMax);
+      assertOk(p.timescale === "1ns", "Test: expected timescale=1ns, got " + p.timescale);
+
+      var saved = vcd;
+      vcd = p;
+      computeVectorStats();
+
+      var data = null;
+      var sine = null;
+      for (var i=0;i<p.signals.length;i++){
+        var s = p.signals[i];
+        if (s.fullName.indexOf("data") >= 0) data = s;
+        if (s.fullName.indexOf("sine") >= 0) sine = s;
+      }
+      assertOk(!!data && data.width === 8, "Test: expected data[8]");
+      assertOk(!!sine && sine.width === 8, "Test: expected sine[8]");
+
+      var v20 = valueAtTime(data, 20);
+      assertOk(v20 === "10101010", "Test: expected raw vector at t=20, got " + v20);
+
+      var vs8 = valueAtTime(sine, 8);
+      assertOk(vs8 === "11111111", "Test: expected sine raw vector at t=8, got " + vs8);
+
+      var clk = null;
+      for (var k=0;k<p.signals.length;k++) if (p.signals[k].fullName.indexOf("clk") >= 0) clk = p.signals[k];
+      assertOk(!!clk && clk.width === 1, "Test: expected clk[1]");
+      var pd = pulseDurationAt(clk, 6, p.tMax);
+      assertOk(!!pd && pd.dur === 10, "Test: expected clk pulse duration at t=6 to be 10, got " + (pd ? pd.dur : "null"));
+      var pdScaled = formatScaledTime(pd.dur, p.timescale);
+      assertOk(pdScaled === "10 ns", "Test: expected scaled clk pulse duration to be 10 ns, got " + pdScaled);
+
+      var tip = buildTooltipText(clk, 6);
+      assertOk(tip.indexOf("\n") >= 0, "Test: tooltip text should contain newlines");
+      assertOk(tip.indexOf("pulse: 10 ns") >= 0, "Test: tooltip should include pulse duration");
+      assertOk(tip.indexOf("(=") >= 0, "Test: tooltip should include scaled time");
+      assertOk(tip.indexOf("value: 1 (0x01)") >= 0, "Test: tooltip should include formatted value with hex");
+
+      var hzStr = avgFreqFromRisingEdgesInRange(clk, 0, 30, p.timescale);
+      assertOk(hzStr === "80 MHz", "Test: avg freq for clk in [0..30] should be 80 MHz, got " + hzStr);
+
+      vcd = saved;
+    }
+
+    window.addEventListener("resize", resizeAndRender);
+
+    var dragDepth = 0;
+    function showDrop(on){
+      if (!els.dropOverlay) return;
+      els.dropOverlay.style.display = on ? "flex" : "none";
+    }
+    function hasFiles(dt){
+      if (!dt) return false;
+      if (dt.types){
+        for (var i=0;i<dt.types.length;i++) if (dt.types[i] === "Files") return true;
+      }
+      return !!dt.files;
+    }
+
+    document.addEventListener("dragenter", function(e){
+      if (!hasFiles(e.dataTransfer)) return;
+      dragDepth++;
+      showDrop(true);
+      e.preventDefault();
+    });
+    document.addEventListener("dragover", function(e){
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      showDrop(true);
+    });
+    document.addEventListener("dragleave", function(e){
+      if (!hasFiles(e.dataTransfer)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) showDrop(false);
+    });
+    document.addEventListener("drop", function(e){
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth = 0;
+      showDrop(false);
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || !files.length) return;
+      loadFromFileObject(files[0]);
+    });
+
+    try{
+      runTests();
+      clearAll();
+
+      var params = new URLSearchParams(window.location.search);
+      var dataParam = params.get("data");
+      var urlParam = params.get("url");
+
+      if (dataParam){
+        var decoded = decodeDataParam(dataParam);
+        if (decoded != null && decoded.length){
+          loadFromText(decoded, "data.vcd");
+        } else {
+          setStatus("Failed to decode ?data= (expected base64 or URL-encoded VCD text). ");
+        }
+      } else if (urlParam){
+        loadFromUrl(urlParam);
+      } else {
+        setStatus("");
+      }
+    } catch (e) {
+      console.error("Tests failed:", e);
+      setStatus("Tests failed: " + (e && e.message ? e.message : String(e)));
+    }
+
+    updateUartAvailability();
+    resizeAndRender();
+  })();
+  </script>
+</body>
+</html>
