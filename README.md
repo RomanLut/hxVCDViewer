@@ -1,2 +1,2 @@
 # hxVCDViewer
-Simple VCD file viewer for debugging microcontroller firmwares
+Simple **VCD file viewer** in **single HTML/CSS/JS File** for debugging microcontroller firmware.
