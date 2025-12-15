@@ -1,6 +1,8 @@
 # hxVCDViewer
 Simple **VCD file viewer** in **single HTML/CSS/JS File** for debugging microcontroller firmware.
 
+Mainly used for profiling: https://github.com/RomanLut/hx-esp32-cam-fpv/
+
 Open **hxvcdviewer.html** in Chome locally,
 
 or from github: https://romanlut.github.io/hxVCDViewer/hxvcdviewer.html
