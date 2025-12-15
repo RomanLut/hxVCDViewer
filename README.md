@@ -1,7 +1,7 @@
 # hxVCDViewer
 Simple **VCD file viewer** in **single HTML/CSS/JS File** for debugging microcontroller firmware.
 
-Open **hxvcdviewer.html** in Chome lolcally,
+Open **hxvcdviewer.html** in Chome locally,
 
 or from github: https://romanlut.github.io/hxVCDViewer/hxvcdviewer.html
 
